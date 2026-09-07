@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Splits</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="templates.js"></script>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#111;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    min-height:100vh;overflow:hidden;
+  }
+  .screen{
+    display:none;min-height:100vh;flex-direction:column;
+    max-width:460px;margin:0 auto;padding:0 20px 24px;
+  }
+  .screen.active{display:flex;}
+
+  #screen1{justify-content:flex-end;padding-top:0;}
+  .hero{flex:1 1 50%;display:flex;flex-direction:column;justify-content:center;min-height:44vh;}
+  .hero h1{font-size:34px;line-height:1.12;font-weight:800;margin:0 0 10px;letter-spacing:-0.01em;}
+  .hero p{color:#b3b0ab;font-size:15px;line-height:1.5;margin:0;}
+  .lower{flex:1 1 50%;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding-bottom:10px;}
+
+  button.primary{background:#fff;color:#111;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;}
+  button.secondary{
+    background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,0.3);border-radius:12px;
+    padding:16px;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  button.strava{background:#FC4C02;color:#fff;border:none;}
+  button.secondary .badge{font-size:10px;font-weight:700;color:#b3b0ab;border:1px solid rgba(255,255,255,0.25);border-radius:5px;padding:2px 6px;}
+  button:disabled{opacity:0.6;cursor:default;}
+  .filerow{display:none;}
+  .status-line{font-size:12.5px;color:#b3b0ab;text-align:center;margin:0 0 4px;min-height:16px;}
+
+  #screen2{padding-top:16px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .topbar button.link{background:none;border:none;color:#fff;font-size:15px;padding:6px;cursor:pointer;}
+  .preview-wrap{position:relative;width:100%;aspect-ratio:9/16;border-radius:16px;overflow:hidden;background:#333;margin-bottom:14px;}
+  #previewCanvas{width:100%;height:100%;display:block;}
+  .template-tray{display:flex;gap:10px;overflow-x:auto;padding-bottom:14px;-webkit-overflow-scrolling:touch;}
+  .tpl-card{flex:0 0 auto;width:78px;text-align:center;cursor:pointer;}
+  .tpl-thumb{width:78px;height:104px;border-radius:10px;background:#222;border:2px solid transparent;margin-bottom:6px;position:relative;overflow:hidden;}
+  .tpl-card.active .tpl-thumb{border-color:#fff;}
+  .tpl-card span{font-size:11.5px;color:#b3b0ab;}
+  .tpl-card.active span{color:#fff;font-weight:700;}
+
+  #screen3{padding-top:16px;align-items:center;text-align:center;}
+  #screen3 h2{font-size:18px;margin:6px 0 16px;}
+  .final-wrap{position:relative;width:100%;max-width:340px;aspect-ratio:9/16;border-radius:16px;overflow:hidden;margin-bottom:20px;}
+  #finalCanvas{width:100%;height:100%;display:block;}
+  .final-actions{display:flex;gap:10px;width:100%;max-width:340px;}
+  .final-actions button{flex:1;}
+</style>
+</head>
+<body>
+
+<div class="screen active" id="screen1">
+  <div class="hero">
+    <h1>Turn today's run into a story</h1>
+    <p>Connect Strava for your real stats, add a photo, share straight to Instagram.</p>
+  </div>
+  <div class="lower">
+    <p class="status-line" id="statusLine"></p>
+    <input type="file" id="photoInput" accept="image/*" class="filerow">
+    <button class="strava" id="stravaBtn">Connect Strava</button>
+    <button class="primary" id="uploadBtn" disabled>Choose photo</button>
+    <button class="secondary" id="healthBtn">Connect Apple Health <span class="badge">iOS app only</span></button>
+  </div>
+</div>
+
+<div class="screen" id="screen2">
+  <div class="topbar">
+    <button class="link" id="backBtn">Back</button>
+    <button class="link" id="nextBtn" style="font-weight:700;">Next</button>
+  </div>
+  <div class="preview-wrap"><canvas id="previewCanvas" width="1080" height="1920"></canvas></div>
+  <div class="template-tray" id="templateTray"></div>
+</div>
+
+<div class="screen" id="screen3">
+  <h2>Ready to share</h2>
+  <div class="final-wrap"><canvas id="finalCanvas" width="1080" height="1920"></canvas></div>
+  <div class="final-actions">
+    <button class="primary" id="saveBtn">Save image</button>
+    <button class="secondary" id="shareBtn">Share</button>
+  </div>
+</div>
+
+<script>
+// ====== 1. FILL THESE IN AFTER YOU REGISTER YOUR STRAVA API APP ======
+// strava.com/settings/api — Client ID is public and safe to leave in this
+// file. The Client Secret goes ONLY in the Vercel environment variable
+// STRAVA_CLIENT_SECRET, used by /api/strava-token.js — never put it here.
+const STRAVA_CLIENT_ID = 'YOUR_STRAVA_CLIENT_ID';
+// =======================================================================
+
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+// Fallback data shown until Strava is connected — same shape as a real pull,
+// so templates work identically either way.
+let activity = {
+  title: 'Morning run', distance: '10.2', distanceUnit: 'km',
+  pace: '5:07', paceUnit: '/km', time: '52:11', elev: '140', elevUnit: 'm',
+  route: [[0,50],[14,12],[32,58],[50,8],[68,46],[86,18],[104,52],[120,26]],
+  isReal: false,
+};
+
+let img = null;
+let currentTemplate = 'classic';
+
+const screens = { 1: document.getElementById('screen1'), 2: document.getElementById('screen2'), 3: document.getElementById('screen3') };
+function showScreen(n){ Object.values(screens).forEach(s=>s.classList.remove('active')); screens[n].classList.add('active'); }
+
+const statusLine = document.getElementById('statusLine');
+const uploadBtn = document.getElementById('uploadBtn');
+const stravaBtn = document.getElementById('stravaBtn');
+
+document.getElementById('healthBtn').addEventListener('click', ()=>{
+  alert('Apple Health connects once this becomes a native iOS app. Use Strava for real data in this web version.');
+});
+
+uploadBtn.addEventListener('click', ()=>document.getElementById('photoInput').click());
+document.getElementById('photoInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    const im = new Image();
+    im.onload = ()=>{ img = im; showScreen(2); drawPreview(); };
+    im.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('backBtn').addEventListener('click', ()=> showScreen(1));
+document.getElementById('nextBtn').addEventListener('click', ()=>{ drawFinal(); showScreen(3); });
+
+// ---- Strava OAuth ----
+stravaBtn.addEventListener('click', ()=>{
+  const url = `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&approval_prompt=auto&scope=activity:read_all`;
+  window.location.href = url;
+});
+
+async function handleOAuthRedirect(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if(!code) {
+    // already connected from a previous visit?
+    const saved = localStorage.getItem('strava_token');
+    if(saved){
+      const token = JSON.parse(saved);
+      if(token.expires_at * 1000 > Date.now()){
+        await loadLatestActivity(token.access_token);
+      }
+    }
+    return;
+  }
+
+  statusLine.textContent = 'Connecting to Strava…';
+  history.replaceState({}, '', REDIRECT_URI); // strip ?code from the URL
+
+  try {
+    const res = await fetch('/api/strava-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const token = await res.json();
+    if(!res.ok || !token.access_token){
+      statusLine.textContent = 'Strava connection failed. Try again.';
+      return;
+    }
+    localStorage.setItem('strava_token', JSON.stringify(token));
+    await loadLatestActivity(token.access_token);
+  } catch(e){
+    statusLine.textContent = 'Strava connection failed. Try again.';
+  }
+}
+
+async function loadLatestActivity(accessToken){
+  statusLine.textContent = 'Pulling your latest activity…';
+  try {
+    const res = await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=1', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const list = await res.json();
+    if(!Array.isArray(list) || list.length === 0){
+      statusLine.textContent = 'Connected — no recent activities found.';
+      return;
+    }
+    const a = list[0];
+    activity = mapStravaActivity(a);
+    statusLine.textContent = `Connected — loaded "${activity.title}"`;
+    stravaBtn.textContent = 'Strava connected ✓';
+    stravaBtn.disabled = true;
+    uploadBtn.disabled = false;
+  } catch(e){
+    statusLine.textContent = 'Could not load your activity. Try reconnecting.';
+  }
+}
+
+function mapStravaActivity(a){
+  const distanceKm = a.distance / 1000;
+  const movingMin = a.moving_time / 60;
+  const paceMinPerKm = movingMin / distanceKm;
+  const paceMin = Math.floor(paceMinPerKm);
+  const paceSec = Math.round((paceMinPerKm - paceMin) * 60);
+
+  const timeH = Math.floor(a.moving_time / 3600);
+  const timeM = Math.floor((a.moving_time % 3600) / 60);
+  const timeS = a.moving_time % 60;
+  const timeStr = timeH > 0
+    ? `${timeH}:${String(timeM).padStart(2,'0')}:${String(timeS).padStart(2,'0')}`
+    : `${timeM}:${String(timeS).padStart(2,'0')}`;
+
+  let route = activity.route; // fallback shape if no polyline
+  if(a.map && a.map.summary_polyline){
+    const points = decodePolyline(a.map.summary_polyline);
+    if(points.length > 1){
+      const avgLat = points.reduce((s,p)=>s+p[0],0)/points.length;
+      route = points.map(p => [
+        p[1] * Math.cos(avgLat * Math.PI/180) * 1000,
+        -p[0] * 1000,
+      ]);
+    }
+  }
+
+  return {
+    title: a.name || 'Activity',
+    distance: distanceKm.toFixed(1), distanceUnit: 'km',
+    pace: `${paceMin}:${String(paceSec).padStart(2,'0')}`, paceUnit: '/km',
+    time: timeStr,
+    elev: Math.round(a.total_elevation_gain || 0), elevUnit: 'm',
+    route,
+    isReal: true,
+  };
+}
+
+// Standard Google encoded-polyline decoder — same format Strava uses for summary_polyline.
+function decodePolyline(str, precision=5){
+  let index=0, lat=0, lng=0, coordinates=[], factor=Math.pow(10,precision);
+  while(index<str.length){
+    let byte, shift=0, result=0;
+    do{ byte=str.charCodeAt(index++)-63; result |= (byte&0x1f)<<shift; shift+=5; } while(byte>=0x20);
+    const dlat = (result & 1) ? ~(result>>1) : (result>>1);
+    lat += dlat;
+    shift=0; result=0;
+    do{ byte=str.charCodeAt(index++)-63; result |= (byte&0x1f)<<shift; shift+=5; } while(byte>=0x20);
+    const dlng = (result & 1) ? ~(result>>1) : (result>>1);
+    lng += dlng;
+    coordinates.push([lat/factor, lng/factor]);
+  }
+  return coordinates;
+}
+
+// ---- Template picker — reads whatever is in TEMPLATES (templates.js) ----
+const tray = document.getElementById('templateTray');
+TEMPLATES.forEach(t=>{
+  const card = document.createElement('div');
+  card.className = 'tpl-card' + (t.id===currentTemplate ? ' active' : '');
+  card.dataset.id = t.id;
+  card.innerHTML = `<div class="tpl-thumb"><canvas width="200" height="266" style="width:100%;height:100%;"></canvas></div><span>${t.name}</span>`;
+  card.addEventListener('click', ()=>{
+    document.querySelectorAll('.tpl-card').forEach(c=>c.classList.remove('active'));
+    card.classList.add('active');
+    currentTemplate = t.id;
+    drawPreview();
+  });
+  tray.appendChild(card);
+});
+
+function fitCover(ctx, image, w, h){
+  const ir = image.width/image.height, cr = w/h;
+  let sw, sh, sx, sy;
+  if(ir > cr){ sh = image.height; sw = sh*cr; sx=(image.width-sw)/2; sy=0; }
+  else { sw = image.width; sh = sw/ir; sx=0; sy=(image.height-sh)/2; }
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, w, h);
+}
+
+function drawTemplate(ctx, w, h, tplId){
+  ctx.clearRect(0,0,w,h);
+  if(img){ fitCover(ctx, img, w, h); } else { ctx.fillStyle = '#555'; ctx.fillRect(0,0,w,h); }
+  const scale = w/1080;
+  const tpl = TEMPLATES.find(t => t.id === tplId);
+  if(tpl) tpl.draw(ctx, w, h, scale);
+}
+
+function drawPreview(){ const c = document.getElementById('previewCanvas'); drawTemplate(c.getContext('2d'), c.width, c.height, currentTemplate); }
+function drawFinal(){ const c = document.getElementById('finalCanvas'); drawTemplate(c.getContext('2d'), c.width, c.height, currentTemplate); }
+
+TEMPLATES.forEach(t=>{
+  const c = tray.querySelector(`.tpl-card[data-id="${t.id}"] canvas`);
+  drawTemplate(c.getContext('2d'), c.width, c.height, t.id);
+});
+
+async function getFinalBlob(){
+  const c = document.getElementById('finalCanvas');
+  return new Promise(res=> c.toBlob(res, 'image/png', 1));
+}
+document.getElementById('saveBtn').addEventListener('click', async ()=>{
+  const blob = await getFinalBlob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'splits-story.png'; a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('shareBtn').addEventListener('click', async ()=>{
+  const blob = await getFinalBlob();
+  const file = new File([blob], 'splits-story.png', {type:'image/png'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:'My run'}); } catch(e){}
+  } else {
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  }
+});
+
+handleOAuthRedirect();
+</script>
+</body>
+</html>
