@@ -28,7 +28,22 @@ const TEMPLATES = [
   { id:'grid', name:'Grid', draw: drawGrid },
   { id:'minimal', name:'Minimal', draw: drawMinimal },
   { id:'route', name:'Route', draw: drawRoute },
+  { id:'recipe', name:'Recipe', draw: drawRecipe },
+  { id:'splits', name:'Splits', draw: drawFastestSlowest },
 ];
+
+// Mock interval data — stands in until real ingestion exists (manual
+// quick-entry, or later a native app reading HealthKit's per-rep
+// workoutActivities). Swap this object for the real source; the two
+// draw functions below don't need to change.
+const intervalActivity = {
+  reps: 8,
+  repDistance: '400m',
+  targetPace: '1:32',
+  restTime: '2:00',
+  fastestLap: '1:28',
+  slowestLap: '1:34',
+};
 
 function roundRect(ctx, x, y, w, h, r){
   const rr = Math.min(r, w/2, h/2);
@@ -198,4 +213,74 @@ function drawRoute(ctx, w, h, s){
   ctx.fillStyle = '#fff';
   ctx.font = `700 ${30*s}px -apple-system, sans-serif`;
   ctx.fillText(activity.distance+' '+activity.distanceUnit+'  ·  '+activity.time, pad+innerPad, y+38*s);
+}
+
+function drawRecipe(ctx, w, h, s){
+  const pad = 32*s;
+  const cardH = 300*s;
+  const cardY = h - cardH - pad;
+
+  ctx.save();
+  roundRect(ctx, pad, cardY, w-pad*2, cardH, 26*s);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(10,10,10,0.6)';
+  ctx.fillRect(pad, cardY, w-pad*2, cardH);
+  ctx.restore();
+
+  const innerX = pad + 30*s;
+  let y = cardY + 46*s;
+  pill(ctx, innerX, y, 'Intervals', s, true);
+
+  y += 108*s;
+  ctx.fillStyle = '#fff';
+  ctx.font = `700 ${64*s}px -apple-system, sans-serif`;
+  const headline = `${intervalActivity.reps} × ${intervalActivity.repDistance}`;
+  ctx.fillText(headline, innerX, y);
+
+  y += 70*s;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = `600 ${28*s}px -apple-system, sans-serif`;
+  ctx.fillText(`@ ${intervalActivity.targetPace}`, innerX, y);
+  const t1 = ctx.measureText(`@ ${intervalActivity.targetPace}`).width;
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillText('·', innerX+t1+16*s, y);
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillText(`${intervalActivity.restTime} rest`, innerX+t1+40*s, y);
+}
+
+function drawFastestSlowest(ctx, w, h, s){
+  const pad = 32*s;
+  const cardH = 260*s;
+  const cardY = h - cardH - pad;
+
+  ctx.save();
+  roundRect(ctx, pad, cardY, w-pad*2, cardH, 26*s);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(10,10,10,0.6)';
+  ctx.fillRect(pad, cardY, w-pad*2, cardH);
+  ctx.restore();
+
+  const innerPad = 40*s;
+  const colW = (w-pad*2-innerPad*2)/2;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1*s;
+  ctx.beginPath();
+  ctx.moveTo(pad+innerPad+colW, cardY+40*s);
+  ctx.lineTo(pad+innerPad+colW, cardY+cardH-40*s);
+  ctx.stroke();
+
+  const pairs = [
+    ['Fastest lap', intervalActivity.fastestLap, '#FC4C02'],
+    ['Slowest lap', intervalActivity.slowestLap, '#fff'],
+  ];
+  pairs.forEach((p,i)=>{
+    const x = pad+innerPad + i*colW;
+    const y = cardY + 90*s;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = `600 ${20*s}px -apple-system, sans-serif`;
+    ctx.fillText(p[0], x, y);
+    ctx.fillStyle = p[2];
+    ctx.font = `700 ${58*s}px -apple-system, sans-serif`;
+    ctx.fillText(p[1], x, y+66*s);
+  });
 }
